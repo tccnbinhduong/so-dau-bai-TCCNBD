@@ -1,0 +1,5 @@
+{
+  "name": "Sổ Đầu Bài Điện Tử",
+  "description": "Một ứng dụng web giúp giáo viên quản lý sổ đầu bài, theo dõi tiết dạy và thống kê. Quản trị viên có thể quản lý tài khoản giáo viên và xem toàn bộ dữ liệu.",
+  "requestFramePermissions": []
+}
