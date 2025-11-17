@@ -15,6 +15,7 @@ export interface LessonLog {
   id: string;
   teacherId: string;
   subjectId: string;
+  session: 'sáng' | 'chiều' | 'tối';
   periods: number;
   periodNumber: number;
   date: string;

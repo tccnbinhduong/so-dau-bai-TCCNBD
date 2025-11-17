@@ -63,7 +63,7 @@ export default function App() {
 
     return (
         <div className="min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200">
-            <Header userName={user.name} onLogout={handleLogout} />
+            <Header userName={user.name} userRole={user.role} onLogout={handleLogout} />
             <main className="p-4 sm:p-6 lg:p-8">
                 {user.role === 'teacher' ? (
                     <TeacherDashboard
@@ -78,6 +78,7 @@ export default function App() {
                         teachers={teachers}
                         onTeachersUpdate={saveAndSetTeachers}
                         subjects={subjects}
+                        onSubjectsUpdate={saveAndSetSubjects}
                         logs={lessonLogs}
                         onLogsUpdate={saveAndSetLogs}
                     />
@@ -157,9 +158,10 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, teachers }) => {
 
 interface HeaderProps {
     userName: string;
+    userRole: 'teacher' | 'admin';
     onLogout: () => void;
 }
-const Header: React.FC<HeaderProps> = ({ userName, onLogout }) => (
+const Header: React.FC<HeaderProps> = ({ userName, userRole, onLogout }) => (
     <header className="bg-white dark:bg-gray-800 shadow-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex items-center justify-between h-16">
@@ -168,7 +170,12 @@ const Header: React.FC<HeaderProps> = ({ userName, onLogout }) => (
                    <span className="font-semibold text-xl ml-2">Sổ Đầu Bài</span>
                 </div>
                 <div className="flex items-center space-x-4">
-                    <span className="text-gray-800 dark:text-gray-200">Xin chào, <span className="font-medium">{userName}</span></span>
+                    <span className="text-gray-800 dark:text-gray-200">
+                        <span className="hidden sm:inline">Xin chào, </span>
+                        <span className="font-medium">
+                            {userRole === 'teacher' ? `Thầy/Cô ${userName}` : userName}
+                        </span>
+                    </span>
                     <button onClick={onLogout} className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-white" title="Đăng xuất">
                         <LogoutIcon />
                     </button>
@@ -191,6 +198,8 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacher, allSubject
     const [isLogModalOpen, setIsLogModalOpen] = useState(false);
     const [isSubjectModalOpen, setIsSubjectModalOpen] = useState(false);
     const [editingLog, setEditingLog] = useState<LessonLog | null>(null);
+    const [deletingSubject, setDeletingSubject] = useState<Subject | null>(null);
+
 
     const teacherSubjects = useMemo(() => allSubjects.filter(s => s.teacherId === teacher.id), [allSubjects, teacher.id]);
     const teacherLogs = useMemo(() => allLogs.filter(l => l.teacherId === teacher.id), [allLogs, teacher.id]);
@@ -232,6 +241,14 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacher, allSubject
       setIsSubjectModalOpen(false);
     }
     
+    const confirmDeleteSubject = () => {
+        if (!deletingSubject) return;
+        onSubjectsUpdate(allSubjects.filter(s => s.id !== deletingSubject.id));
+        onLogsUpdate(allLogs.filter(l => l.subjectId !== deletingSubject.id));
+        setDeletingSubject(null);
+    };
+
+
     const totalPeriods = useMemo(() => teacherLogs.reduce((sum, log) => sum + log.periods, 0), [teacherLogs]);
 
     return (
@@ -247,7 +264,7 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacher, allSubject
                 <div className="flex justify-between items-center mb-4">
                     <h3 className="text-xl font-semibold">Sổ đầu bài</h3>
                     <button onClick={handleOpenAddLogModal} className="inline-flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">
-                        <PlusIcon /> <span className="ml-2">Thêm mới</span>
+                        <PlusIcon /> <span className="ml-2 hidden sm:inline">Thêm mới</span>
                     </button>
                 </div>
                  <LessonLogList logs={teacherLogs} subjects={teacherSubjects} teachers={[]} onEdit={handleOpenEditLogModal} onDelete={handleDeleteLog} />
@@ -258,12 +275,24 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacher, allSubject
                  <div className="flex justify-between items-center mb-4">
                     <h3 className="text-xl font-semibold">Quản lý môn học</h3>
                     <button onClick={() => setIsSubjectModalOpen(true)} className="inline-flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">
-                        <PlusIcon /> <span className="ml-2">Thêm môn học</span>
+                        <PlusIcon /> <span className="ml-2 hidden sm:inline">Thêm môn học</span>
                     </button>
                 </div>
                 <div className="flex flex-wrap gap-2">
                     {teacherSubjects.length > 0 ? teacherSubjects.map(s => (
-                        <span key={s.id} className="bg-gray-200 dark:bg-gray-700 text-sm font-medium px-3 py-1 rounded-full">{s.name}</span>
+                        <span key={s.id} className="bg-gray-200 dark:bg-gray-700 text-sm font-medium pl-3 pr-2 py-1 rounded-full inline-flex items-center">
+                            {s.name}
+                            <button
+                                onClick={() => setDeletingSubject(s)}
+                                className="ml-2 -mr-1 flex-shrink-0 inline-flex items-center justify-center h-5 w-5 rounded-full text-gray-500 hover:bg-gray-300 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-600 dark:hover:text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+                                aria-label={`Xóa môn ${s.name}`}
+                            >
+                                <span className="sr-only">Xóa môn {s.name}</span>
+                                <svg className="h-4 w-4" stroke="currentColor" fill="none" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </span>
                     )) : <p>Chưa có môn học nào.</p>}
                 </div>
             </div>
@@ -286,6 +315,28 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacher, allSubject
                 onSave={handleSaveSubject}
               />
             )}
+
+            {deletingSubject && (
+                <Modal
+                    isOpen={!!deletingSubject}
+                    onClose={() => setDeletingSubject(null)}
+                    title="Xác nhận xóa môn học"
+                >
+                    <div>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                           Bạn có chắc chắn muốn xóa môn học <span className="font-bold">{deletingSubject.name}</span>? Mọi tiết dạy liên quan cũng sẽ bị xóa vĩnh viễn. Hành động này không thể hoàn tác.
+                        </p>
+                        <div className="flex justify-end space-x-4 mt-6">
+                            <button type="button" onClick={() => setDeletingSubject(null)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-600">
+                                Hủy
+                            </button>
+                            <button type="button" onClick={confirmDeleteSubject} className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
+                                Xóa
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+            )}
         </div>
     );
 };
@@ -296,10 +347,11 @@ interface AdminDashboardProps {
     teachers: Teacher[];
     onTeachersUpdate: (teachers: Teacher[]) => void;
     subjects: Subject[];
+    onSubjectsUpdate: (subjects: Subject[]) => void;
     logs: LessonLog[];
     onLogsUpdate: (logs: LessonLog[]) => void;
 }
-const AdminDashboard: React.FC<AdminDashboardProps> = ({ teachers, onTeachersUpdate, subjects, logs, onLogsUpdate }) => {
+const AdminDashboard: React.FC<AdminDashboardProps> = ({ teachers, onTeachersUpdate, subjects, onSubjectsUpdate, logs, onLogsUpdate }) => {
     const [activeTab, setActiveTab] = useState('logs');
     const [filterTeacher, setFilterTeacher] = useState('');
     const [filterSubject, setFilterSubject] = useState('');
@@ -319,9 +371,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teachers, onTeachersUpd
         <div className="space-y-6">
             <h2 className="text-3xl font-bold">Bảng điều khiển Quản trị viên</h2>
             <div className="border-b border-gray-200 dark:border-gray-700">
-                <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+                <nav className="-mb-px flex space-x-8 overflow-x-auto" aria-label="Tabs">
                     <button onClick={() => setActiveTab('logs')} className={`${activeTab === 'logs' ? 'border-primary-500 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}>Sổ đầu bài</button>
                     <button onClick={() => setActiveTab('teachers')} className={`${activeTab === 'teachers' ? 'border-primary-500 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}>Quản lý giáo viên</button>
+                    <button onClick={() => setActiveTab('subjects')} className={`${activeTab === 'subjects' ? 'border-primary-500 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}>Quản lý môn học</button>
                     <button onClick={() => setActiveTab('stats')} className={`${activeTab === 'stats' ? 'border-primary-500 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}>Thống kê</button>
                 </nav>
             </div>
@@ -358,6 +411,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teachers, onTeachersUpd
             
             {activeTab === 'teachers' && <TeacherManager teachers={teachers} onUpdate={onTeachersUpdate} />}
 
+            {activeTab === 'subjects' && <SubjectManager subjects={subjects} teachers={teachers} onSubjectsUpdate={onSubjectsUpdate} logs={logs} onLogsUpdate={onLogsUpdate} />}
+
             {activeTab === 'stats' && <StatisticsView logs={logs} teachers={teachers} />}
 
         </div>
@@ -385,19 +440,28 @@ const LessonLogList: React.FC<LessonLogListProps> = ({ logs, subjects, teachers,
             <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                 <thead className="bg-gray-50 dark:bg-gray-700">
                     <tr>
-                        {onEdit && <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Ngày dạy</th>}
-                        {onEdit && <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Môn học</th>}
+                        {!onEdit && <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">Ngày/Buổi</th>}
+                        {onEdit && <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">Ngày dạy</th>}
+                        {onEdit && <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Buổi</th>}
+                        {onEdit && <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">Môn học</th>}
                         {!onEdit && <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Giáo viên</th>}
-                        {!onEdit && <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Môn học</th>}
-                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Tên bài dạy</th>
-                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Sĩ số/Vắng</th>
+                        {!onEdit && <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">Môn học</th>}
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">Tên bài dạy</th>
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">Sĩ số/Vắng</th>
                         {onEdit && <th scope="col" className="relative px-6 py-3"><span className="sr-only">Hành động</span></th>}
                     </tr>
                 </thead>
                 <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                     {logs.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(log => (
                         <tr key={log.id}>
+                            {!onEdit && (
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                    {new Date(log.date).toLocaleDateString('vi-VN')}
+                                    <span className="block text-xs capitalize">{log.session}</span>
+                                </td>
+                            )}
                             {onEdit && <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{new Date(log.date).toLocaleDateString('vi-VN')}</td>}
+                            {onEdit && <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 capitalize">{log.session}</td>}
                             {onEdit && <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{getSubjectName(log.subjectId)}</td>}
                             {!onEdit && <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{getTeacherName(log.teacherId)}</td>}
                             {!onEdit && <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{getSubjectName(log.subjectId)}</td>}
@@ -405,7 +469,7 @@ const LessonLogList: React.FC<LessonLogListProps> = ({ logs, subjects, teachers,
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{log.classSize} / {log.absentStudents}</td>
                             {onEdit && onDelete && (
                                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                    <div className="flex space-x-2">
+                                    <div className="flex space-x-2 justify-end">
                                         <button onClick={() => onEdit(log)} className="text-primary-600 hover:text-primary-900"><EditIcon /></button>
                                         <button onClick={() => onDelete(log.id)} className="text-red-600 hover:text-red-900"><DeleteIcon /></button>
                                     </div>
@@ -424,6 +488,7 @@ const LessonLogFormModal: React.FC<{ isOpen: boolean, onClose: () => void, onSav
     const [formData, setFormData] = useState({
         subjectId: log?.subjectId || '',
         date: log?.date || new Date().toISOString().split('T')[0],
+        session: log?.session || 'sáng',
         periodNumber: log?.periodNumber || 1,
         periods: log?.periods || 1,
         title: log?.title || '',
@@ -446,52 +511,68 @@ const LessonLogFormModal: React.FC<{ isOpen: boolean, onClose: () => void, onSav
         onSave({ ...formData, teacherId });
     };
 
+    const commonInputClass = "bg-gray-100 block w-full border-gray-300 rounded-md shadow-sm dark:bg-gray-700 dark:border-gray-600 focus:ring-primary-500 focus:border-primary-500 sm:text-sm p-2.5";
+    const commonLabelClass = "block mb-2 text-sm font-medium text-gray-900 dark:text-white";
+
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={log ? 'Chỉnh sửa sổ đầu bài' : 'Thêm mới sổ đầu bài'}>
             <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                    <label className="block text-sm font-medium">Môn học</label>
-                    <select name="subjectId" value={formData.subjectId} onChange={handleChange} required className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm rounded-md dark:bg-gray-700 dark:border-gray-600">
+                    <label htmlFor="subjectId" className={commonLabelClass}>Môn học</label>
+                    <select id="subjectId" name="subjectId" value={formData.subjectId} onChange={handleChange} required className={commonInputClass}>
                         <option value="" disabled>Chọn môn học</option>
                         {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
                 </div>
-                {/* Other form fields */}
-                <div className="grid grid-cols-2 gap-4">
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                        <label className="block text-sm font-medium">Ngày dạy</label>
-                        <input type="date" name="date" value={formData.date} onChange={handleChange} required className="mt-1 block w-full border-gray-300 rounded-md shadow-sm dark:bg-gray-700 dark:border-gray-600"/>
+                        <label htmlFor="date" className={commonLabelClass}>Ngày dạy</label>
+                        <input type="date" id="date" name="date" value={formData.date} onChange={handleChange} required className={commonInputClass}/>
                     </div>
                     <div>
-                        <label className="block text-sm font-medium">Tiết dạy (số thứ tự)</label>
-                        <input type="number" name="periodNumber" value={formData.periodNumber} onChange={handleChange} required className="mt-1 block w-full border-gray-300 rounded-md shadow-sm dark:bg-gray-700 dark:border-gray-600"/>
+                        <label htmlFor="session" className={commonLabelClass}>Buổi dạy</label>
+                        <select id="session" name="session" value={formData.session} onChange={handleChange} required className={commonInputClass}>
+                            <option value="sáng">Sáng</option>
+                            <option value="chiều">Chiều</option>
+                            <option value="tối">Tối</option>
+                        </select>
                     </div>
                 </div>
-                 <div className="grid grid-cols-2 gap-4">
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                        <label htmlFor="periodNumber" className={commonLabelClass}>Tiết dạy (thứ tự)</label>
+                        <input type="number" id="periodNumber" name="periodNumber" min="1" value={formData.periodNumber} onChange={handleChange} required className={commonInputClass}/>
+                    </div>
+                    <div>
+                        <label htmlFor="periods" className={commonLabelClass}>Số tiết</label>
+                        <input type="number" id="periods" name="periods" min="1" value={formData.periods} onChange={handleChange} required className={commonInputClass}/>
+                    </div>
                      <div>
-                        <label className="block text-sm font-medium">Số tiết</label>
-                        <input type="number" name="periods" value={formData.periods} onChange={handleChange} required className="mt-1 block w-full border-gray-300 rounded-md shadow-sm dark:bg-gray-700 dark:border-gray-600"/>
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium">Sĩ số</label>
-                        <input type="number" name="classSize" value={formData.classSize} onChange={handleChange} required className="mt-1 block w-full border-gray-300 rounded-md shadow-sm dark:bg-gray-700 dark:border-gray-600"/>
+                        <label htmlFor="classSize" className={commonLabelClass}>Sĩ số</label>
+                        <input type="number" id="classSize" name="classSize" min="0" value={formData.classSize} onChange={handleChange} required className={commonInputClass}/>
                     </div>
                 </div>
-                 <div>
-                    <label className="block text-sm font-medium">Tên bài dạy</label>
-                    <input type="text" name="title" value={formData.title} onChange={handleChange} required className="mt-1 block w-full border-gray-300 rounded-md shadow-sm dark:bg-gray-700 dark:border-gray-600"/>
+
+                <div>
+                    <label htmlFor="absentStudents" className={commonLabelClass}>Học sinh vắng</label>
+                    <input type="text" id="absentStudents" name="absentStudents" placeholder="VD: An, Bình (phép)" value={formData.absentStudents} onChange={handleChange} className={commonInputClass}/>
                 </div>
-                 <div>
-                    <label className="block text-sm font-medium">Học sinh vắng</label>
-                    <input type="text" name="absentStudents" value={formData.absentStudents} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm dark:bg-gray-700 dark:border-gray-600"/>
+
+                <div>
+                    <label htmlFor="title" className={commonLabelClass}>Tên bài dạy / Nội dung công việc</label>
+                    <textarea id="title" name="title" value={formData.title} onChange={handleChange} required rows={3} className={commonInputClass}/>
                 </div>
-                 <div>
-                    <label className="block text-sm font-medium">Nhận xét tiết học</label>
-                    <textarea name="remarks" value={formData.remarks} onChange={handleChange} rows={3} className="mt-1 block w-full border-gray-300 rounded-md shadow-sm dark:bg-gray-700 dark:border-gray-600"/>
+
+                <div>
+                    <label htmlFor="remarks" className={commonLabelClass}>Nhận xét tiết học</label>
+                    <textarea id="remarks" name="remarks" value={formData.remarks} onChange={handleChange} rows={3} className={commonInputClass}/>
                 </div>
+
                 <div className="flex justify-end space-x-2 pt-4">
-                    <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 dark:bg-gray-600 rounded-lg">Hủy</button>
-                    <button type="submit" className="px-4 py-2 bg-primary-600 text-white rounded-lg">Lưu</button>
+                    <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 border border-gray-300 rounded-md shadow-sm hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-700">Hủy</button>
+                    <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-primary-600 border border-transparent rounded-md shadow-sm hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">Lưu</button>
                 </div>
             </form>
         </Modal>
@@ -547,7 +628,7 @@ const TeacherManager: React.FC<{ teachers: Teacher[], onUpdate: (teachers: Teach
             <div className="flex justify-between items-center mb-4">
                 <h3 className="text-xl font-semibold">Danh sách giáo viên</h3>
                 <button onClick={() => { setEditingTeacher(null); setIsModalOpen(true); }} className="inline-flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">
-                    <PlusIcon /> <span className="ml-2">Thêm giáo viên</span>
+                    <PlusIcon /> <span className="ml-2 hidden sm:inline">Thêm giáo viên</span>
                 </button>
             </div>
             {/* Table */}
@@ -617,55 +698,109 @@ const TeacherFormModal: React.FC<{ isOpen: boolean, onClose: () => void, onSave:
     );
 };
 
-// --- STATISTICS VIEW ---
-const StatisticsView: React.FC<{ logs: LessonLog[], teachers: Teacher[] }> = ({ logs, teachers }) => {
-    const [period, setPeriod] = useState<'week' | 'month'>('week');
+// --- SUBJECT MANAGER (ADMIN) ---
+const SubjectManager: React.FC<{ subjects: Subject[], teachers: Teacher[], onSubjectsUpdate: (s: Subject[]) => void, logs: LessonLog[], onLogsUpdate: (l: LessonLog[]) => void }> = ({ subjects, teachers, onSubjectsUpdate, logs, onLogsUpdate }) => {
+    const [deletingSubject, setDeletingSubject] = useState<Subject | null>(null);
+    const getTeacherName = (id: string) => teachers.find(t => t.id === id)?.name || 'N/A';
     
-    const getWeekKey = (d: Date) => {
-      const date = new Date(d.valueOf());
-      date.setDate(date.getDate() + 4 - (date.getDay() || 7));
-      const yearStart = new Date(date.getFullYear(), 0, 1);
-      const weekNo = Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-      return `${date.getFullYear()}-W${weekNo}`;
+    const confirmDeleteSubject = () => {
+        if (!deletingSubject) return;
+        onSubjectsUpdate(subjects.filter(s => s.id !== deletingSubject.id));
+        onLogsUpdate(logs.filter(l => l.subjectId !== deletingSubject.id));
+        setDeletingSubject(null);
     };
 
-    const getMonthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-
-    const stats = useMemo(() => {
-        const grouped: { [key: string]: { [teacherId: string]: number } } = {};
-        logs.forEach(log => {
-            const date = new Date(log.date);
-            const key = period === 'week' ? getWeekKey(date) : getMonthKey(date);
-            if (!grouped[key]) grouped[key] = {};
-            if (!grouped[key][log.teacherId]) grouped[key][log.teacherId] = 0;
-            grouped[key][log.teacherId] += log.periods;
-        });
-        return Object.entries(grouped).sort(([keyA], [keyB]) => keyB.localeCompare(keyA));
-    }, [logs, period]);
 
     return (
         <div className="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6">
-            <div className="flex justify-between items-center mb-4">
-                <h3 className="text-xl font-semibold">Thống kê số tiết dạy</h3>
-                <div className="flex space-x-2 p-1 bg-gray-200 dark:bg-gray-700 rounded-lg">
-                    <button onClick={() => setPeriod('week')} className={`px-3 py-1 text-sm rounded-md ${period === 'week' ? 'bg-white dark:bg-gray-900 shadow' : ''}`}>Theo tuần</button>
-                    <button onClick={() => setPeriod('month')} className={`px-3 py-1 text-sm rounded-md ${period === 'month' ? 'bg-white dark:bg-gray-900 shadow' : ''}`}>Theo tháng</button>
-                </div>
+            <h3 className="text-xl font-semibold mb-4">Tất cả môn học</h3>
+            <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                     <thead className="bg-gray-50 dark:bg-gray-700">
+                        <tr>
+                           <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Tên môn học</th>
+                           <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Giáo viên phụ trách</th>
+                           <th scope="col" className="relative px-6 py-3"><span className="sr-only">Actions</span></th>
+                        </tr>
+                     </thead>
+                     <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                        {subjects.map(subject => (
+                            <tr key={subject.id}>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{subject.name}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm">{getTeacherName(subject.teacherId)}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                     <button onClick={() => setDeletingSubject(subject)} className="text-red-600 hover:text-red-900"><DeleteIcon /></button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
             </div>
-             <div className="space-y-4">
-                {stats.length > 0 ? stats.map(([time, teacherStats]) => (
-                    <div key={time} className="p-4 border dark:border-gray-700 rounded-lg">
-                        <h4 className="font-bold mb-2">{period === 'week' ? `Tuần ${time.split('-W')[1]}, ${time.split('-W')[0]}` : `Tháng ${time.split('-')[1]}/${time.split('-')[0]}`}</h4>
-                        <ul>
-                            {Object.entries(teacherStats).map(([teacherId, count]) => (
-                                <li key={teacherId} className="flex justify-between py-1">
-                                    <span>{teachers.find(t => t.id === teacherId)?.name || 'Không xác định'}</span>
-                                    <span className="font-semibold">{count} tiết</span>
-                                </li>
-                            ))}
-                        </ul>
+
+             {deletingSubject && (
+                <Modal
+                    isOpen={!!deletingSubject}
+                    onClose={() => setDeletingSubject(null)}
+                    title="Xác nhận xóa môn học"
+                >
+                    <div>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                           Bạn có chắc chắn muốn xóa môn học <span className="font-bold">{deletingSubject.name}</span>? Mọi tiết dạy liên quan cũng sẽ bị xóa vĩnh viễn. Hành động này không thể hoàn tác.
+                        </p>
+                        <div className="flex justify-end space-x-4 mt-6">
+                            <button type="button" onClick={() => setDeletingSubject(null)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-600">
+                                Hủy
+                            </button>
+                            <button type="button" onClick={confirmDeleteSubject} className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
+                                Xóa
+                            </button>
+                        </div>
                     </div>
-                )) : <p>Không có dữ liệu thống kê.</p>}
+                </Modal>
+            )}
+        </div>
+    );
+};
+
+
+// --- STATISTICS (ADMIN) ---
+const StatisticsView: React.FC<{ logs: LessonLog[], teachers: Teacher[] }> = ({ logs, teachers }) => {
+    const statsByTeacher = useMemo(() => {
+        const result: { [teacherId: string]: { name: string, periodCount: number, logCount: number } } = {};
+        teachers.forEach(t => {
+            result[t.id] = { name: t.name, periodCount: 0, logCount: 0 };
+        });
+        logs.forEach(log => {
+            if (result[log.teacherId]) {
+                result[log.teacherId].periodCount += log.periods;
+                result[log.teacherId].logCount += 1;
+            }
+        });
+        return Object.values(result).sort((a,b) => b.periodCount - a.periodCount);
+    }, [logs, teachers]);
+
+    return (
+        <div className="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6">
+            <h3 className="text-xl font-semibold mb-4">Thống kê số tiết dạy theo giáo viên</h3>
+            <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                     <thead className="bg-gray-50 dark:bg-gray-700">
+                        <tr>
+                           <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Tên giáo viên</th>
+                           <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Số lần ghi sổ</th>
+                           <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Tổng số tiết đã dạy</th>
+                        </tr>
+                     </thead>
+                     <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                        {statsByTeacher.map(stat => (
+                            <tr key={stat.name}>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{stat.name}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm">{stat.logCount}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm font-bold">{stat.periodCount}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
             </div>
         </div>
     );
