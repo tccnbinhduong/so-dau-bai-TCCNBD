@@ -31,15 +31,16 @@ const seedInitialData = () => {
     { id: 't2', code: 'GV02', name: 'Trần Thị Bình' },
   ];
   const initialSubjects: Subject[] = [
-    { id: 's1', teacherId: 't1', name: 'Toán học' },
-    { id: 's2', teacherId: 't1', name: 'Vật lý' },
-    { id: 's3', teacherId: 't2', name: 'Ngữ văn' },
+    { id: 's1', teacherId: 't1', name: 'Toán học', totalPeriods: 90 },
+    { id: 's2', teacherId: 't1', name: 'Vật lý', totalPeriods: 70 },
+    { id: 's3', teacherId: 't2', name: 'Ngữ văn', totalPeriods: 105 },
   ];
   const initialLogs: LessonLog[] = [
     {
       id: 'l1',
       teacherId: 't1',
       subjectId: 's1',
+      className: '10A1',
       date: new Date(Date.now() - 86400000 * 2).toISOString().split('T')[0],
       session: 'sáng',
       periodNumber: 1,
@@ -53,6 +54,7 @@ const seedInitialData = () => {
       id: 'l2',
       teacherId: 't2',
       subjectId: 's3',
+      className: '12B3',
       date: new Date(Date.now() - 86400000 * 1).toISOString().split('T')[0],
       session: 'chiều',
       periodNumber: 3,

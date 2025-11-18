@@ -9,12 +9,14 @@ export interface Subject {
   id: string;
   name: string;
   teacherId: string;
+  totalPeriods: number;
 }
 
 export interface LessonLog {
   id: string;
   teacherId: string;
   subjectId: string;
+  className: string;
   session: 'sáng' | 'chiều' | 'tối';
   periods: number;
   periodNumber: number;
