@@ -122,8 +122,9 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin, teachers }) => {
         <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900">
             <div className="w-full max-w-md p-8 space-y-8 bg-white dark:bg-gray-800 rounded-lg shadow-lg">
                 <div className="text-center">
-                    <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Sổ Đầu Bài Điện Tử</h1>
-                    <p className="mt-2 text-gray-600 dark:text-gray-400">Đăng nhập để tiếp tục</p>
+                    <h1 className="text-3xl font-bold text-gray-900 dark:text-white uppercase tracking-wider">Sổ đầu bài Online</h1>
+                    <p className="mt-2 text-xl text-gray-800 dark:text-gray-300">Trường Trung cấp Công nghiệp Bình Dương</p>
+                    <p className="mt-4 text-gray-600 dark:text-gray-400">Đăng nhập để tiếp tục</p>
                 </div>
                 <div className="flex border-b border-gray-200 dark:border-gray-700">
                     <button onClick={() => setIsTeacherTab(true)} className={`w-1/2 py-4 text-sm font-medium text-center transition-colors ${isTeacherTab ? 'border-b-2 border-primary-500 text-primary-600 dark:text-primary-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}>
@@ -166,7 +167,10 @@ const Header: React.FC<HeaderProps> = ({ userName, userRole, onLogout }) => (
             <div className="flex items-center justify-between h-16">
                 <div className="flex items-center">
                    <BookOpenIcon />
-                   <span className="font-semibold text-xl ml-2">Sổ Đầu Bài</span>
+                   <div className="ml-2">
+                        <span className="block font-bold text-lg leading-tight">Sổ đầu bài Online</span>
+                        <span className="block text-sm text-gray-500 dark:text-gray-400 leading-tight">Trường Trung cấp Công nghiệp Bình Dương</span>
+                   </div>
                 </div>
                 <div className="flex items-center space-x-4">
                     <span className="text-gray-800 dark:text-gray-200">
@@ -557,7 +561,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teachers, onTeachersUpd
             `).join('');
 
         const teacherFilterName = filterTeacher ? teachers.find(t => t.id === filterTeacher)?.name : 'Tất cả';
-        const subjectFilterName = filterSubject ? subjects.find(s => s.id === filterSubject)?.name : 'Tất cả';
+        const subjectFilterName = filterSubject ? subjects.find(s => s.id === subjectFilterName)?.name : 'Tất cả';
         const dateFilterRange = startDate && endDate
             ? `Từ ${new Date(startDate).toLocaleDateString('vi-VN')} đến ${new Date(endDate).toLocaleDateString('vi-VN')}`
             : startDate
