@@ -1,7 +1,8 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Teacher, Subject, LessonLog, UserSession } from './types';
 import { storageService, ADMIN_PASSWORD } from './services/storageService';
-import { PlusIcon, EditIcon, DeleteIcon, LogoutIcon, UserGroupIcon, ChartBarIcon, BookOpenIcon, DownloadIcon } from './components/Icons';
+import { PlusIcon, EditIcon, DeleteIcon, LogoutIcon, UserGroupIcon, ChartBarIcon, BookOpenIcon, DownloadIcon, SignatureIcon } from './components/Icons';
 import Modal from './components/Modal';
 
 // --- HELPER COMPONENTS (Defined outside main App to prevent re-creation on re-renders) ---
@@ -67,6 +68,10 @@ export default function App() {
                 {user.role === 'teacher' ? (
                     <TeacherDashboard
                         teacher={teachers.find(t => t.id === user.id)!}
+                        onTeacherUpdate={(updatedTeacher) => {
+                            const updatedTeachers = teachers.map(t => t.id === updatedTeacher.id ? updatedTeacher : t);
+                            saveAndSetTeachers(updatedTeachers);
+                        }}
                         allSubjects={subjects}
                         onSubjectsUpdate={saveAndSetSubjects}
                         allLogs={lessonLogs}
@@ -191,15 +196,19 @@ const Header: React.FC<HeaderProps> = ({ userName, userRole, onLogout }) => (
 // --- TEACHER DASHBOARD ---
 interface TeacherDashboardProps {
     teacher: Teacher;
+    onTeacherUpdate: (teacher: Teacher) => void;
     allSubjects: Subject[];
     onSubjectsUpdate: (subjects: Subject[]) => void;
     allLogs: LessonLog[];
     onLogsUpdate: (logs: LessonLog[]) => void;
 }
 
-const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacher, allSubjects, onSubjectsUpdate, allLogs, onLogsUpdate }) => {
+const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacher, onTeacherUpdate, allSubjects, onSubjectsUpdate, allLogs, onLogsUpdate }) => {
     const [isLogModalOpen, setIsLogModalOpen] = useState(false);
     const [isSubjectModalOpen, setIsSubjectModalOpen] = useState(false);
+    const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+    const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
+    
     const [editingLog, setEditingLog] = useState<LessonLog | null>(null);
     const [deletingSubject, setDeletingSubject] = useState<Subject | null>(null);
     const [deletingLog, setDeletingLog] = useState<LessonLog | null>(null);
@@ -328,9 +337,159 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacher, allSubject
         setDeletingSubject(null);
     };
 
+    const handleSaveSignature = (signature: string | undefined) => {
+        onTeacherUpdate({ ...teacher, signature });
+        setIsSignatureModalOpen(false);
+    };
+
+    const handleTeacherExportPDF = (subjectId: string, className: string) => {
+        const exportLogs = teacherLogs
+            .filter(log => log.subjectId === subjectId && log.className === className)
+            .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+        const subjectName = teacherSubjects.find(s => s.id === subjectId)?.name || '';
+
+        const printWindow = window.open('', '_blank');
+        if (!printWindow) {
+            alert("Không thể mở cửa sổ mới. Vui lòng kiểm tra trình chặn pop-up.");
+            return;
+        }
+
+        const signatureImg = teacher.signature 
+            ? `<img src="${teacher.signature}" style="max-height: 40px; max-width: 80px; display: block; margin: 0 auto;" alt="Ký tên" />` 
+            : '';
+
+        const tableRows = exportLogs.map(log => `
+            <tr>
+                <td style="text-align: center;">${new Date(log.date).toLocaleDateString('vi-VN')}</td>
+                <td style="text-align: center; text-transform: capitalize;">${log.session}</td>
+                <td style="text-align: center;">${log.periodNumber}</td>
+                <td style="text-align: center;">${log.periods}</td>
+                <td style="text-align: center;">${log.classSize}</td>
+                <td style="text-align: center;">${log.absentStudents}</td>
+                <td>${log.title}</td>
+                <td>${log.remarks}</td>
+                <td style="text-align: center; vertical-align: middle;">${signatureImg}</td>
+            </tr>
+        `).join('');
+
+        // Generate empty rows if few logs
+        const minRows = 5;
+        let emptyRows = '';
+        if (exportLogs.length < minRows) {
+            for (let i = 0; i < (minRows - exportLogs.length); i++) {
+                emptyRows += `
+                <tr>
+                    <td style="height: 30px;"></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+                </tr>`;
+            }
+        }
+
+        const footerSignature = teacher.signature 
+            ? `<img src="${teacher.signature}" style="max-height: 80px; margin: 10px 0; display: block; margin-left: auto; margin-right: auto;" alt="Chữ ký" />` 
+            : '<p style="margin-top: 80px;"></p>';
+
+        const htmlContent = `
+            <!DOCTYPE html>
+            <html lang="vi">
+            <head>
+                <meta charset="UTF-8">
+                <title>Sổ Đầu Bài - ${className}</title>
+                <style>
+                    body { font-family: 'Times New Roman', serif; margin: 20px; }
+                    .header { text-align: center; margin-bottom: 30px; }
+                    .header h3, .header h4 { margin: 5px 0; font-weight: normal; text-transform: uppercase; }
+                    .header h1 { margin: 20px 0; font-size: 28px; font-weight: bold; }
+                    .info-section { margin-bottom: 15px; padding-left: 50px; }
+                    .info-line { margin-bottom: 10px; font-size: 16px; }
+                    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+                    th, td { border: 1px solid #000; padding: 5px; font-size: 14px; vertical-align: middle; }
+                    th { font-weight: bold; text-align: center; }
+                    .footer { display: flex; justify-content: space-between; margin-top: 50px; text-align: center; font-weight: bold; padding: 0 20px; }
+                    .footer div { width: 30%; }
+                    @media print {
+                        @page { size: landscape; margin: 1cm; }
+                        body { -webkit-print-color-adjust: exact; }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="header">
+                    <h4>SỞ GIÁO DỤC VÀ ĐÀO TẠO TP.HỒ CHÍ MINH</h4>
+                    <h4>TRƯỜNG TRUNG CẤP CÔNG NGHIỆP BÌNH DƯƠNG</h4>
+                    <h1>SỔ ĐẦU BÀI</h1>
+                </div>
+                
+                <div class="info-section">
+                    <div class="info-line">Họ tên giáo viên: ${teacher.name}</div>
+                    <div class="info-line">Môn học: ${subjectName}</div>
+                    <div class="info-line">Lớp: ${className}</div>
+                </div>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th width="10%">Ngày dạy</th>
+                            <th width="5%">Buổi</th>
+                            <th width="5%">Tiết dạy</th>
+                            <th width="5%">Số tiết</th>
+                            <th width="5%">Sĩ số</th>
+                            <th width="10%">Học sinh vắng</th>
+                            <th width="30%">Tên bài học, nội dung công việc</th>
+                            <th width="15%">Nhận xét tiết học</th>
+                            <th width="15%">Giáo viên kí tên</th>
+                        </tr>
+                        <tr style="font-style: italic; text-align: center;">
+                           <td>(1)</td>
+                           <td>(2)</td>
+                           <td>(3)</td>
+                           <td>(4)</td>
+                           <td>(5)</td>
+                           <td>(6)</td>
+                           <td>(7)</td>
+                           <td>(8)</td>
+                           <td>(9)</td>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tableRows}
+                        ${emptyRows}
+                    </tbody>
+                </table>
+
+                <div class="footer">
+                    <div>
+                        <p>Giáo viên bộ môn</p>
+                        ${footerSignature}
+                        <p>${teacher.name}</p>
+                    </div>
+                    <div>
+                        <p>Giáo viên chủ nhiệm</p>
+                    </div>
+                    <div>
+                        <p>Ban giám hiệu</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+        `;
+
+        printWindow.document.write(htmlContent);
+        printWindow.document.close();
+        printWindow.focus();
+        setTimeout(() => {
+            printWindow.print();
+        }, 500);
+    };
+
     return (
         <div className="space-y-6">
-            <h2 className="text-3xl font-bold">Bảng điều khiển của giáo viên</h2>
+            <div className="flex justify-between items-center">
+                <h2 className="text-3xl font-bold">Bảng điều khiển của giáo viên</h2>
+                <button onClick={() => setIsSignatureModalOpen(true)} className="inline-flex items-center px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm">
+                    <SignatureIcon /> <span className="ml-2">Cập nhật chữ ký</span>
+                </button>
+            </div>
             
             {/* Subjects Section */}
             <div className="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6">
@@ -373,9 +532,14 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacher, allSubject
             <div className="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6">
                 <div className="flex justify-between items-center mb-4">
                     <h3 className="text-xl font-semibold">Sổ đầu bài</h3>
-                    <button onClick={handleOpenAddLogModal} className="inline-flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">
-                        <PlusIcon /> <span className="ml-2 hidden sm:inline">Thêm mới</span>
-                    </button>
+                    <div className="flex space-x-2">
+                        <button onClick={() => setIsExportModalOpen(true)} className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                            <DownloadIcon /> <span className="ml-2 hidden sm:inline">Xuất file in</span>
+                        </button>
+                        <button onClick={handleOpenAddLogModal} className="inline-flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">
+                            <PlusIcon /> <span className="ml-2 hidden sm:inline">Thêm mới</span>
+                        </button>
+                    </div>
                 </div>
                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                     <div>
@@ -433,6 +597,8 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacher, allSubject
                 </div>
             </div>
 
+            {/* MODALS */}
+
             {isLogModalOpen && (
                 <LessonLogFormModal 
                     isOpen={isLogModalOpen} 
@@ -450,6 +616,27 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacher, allSubject
                 onClose={() => setIsSubjectModalOpen(false)}
                 onSave={handleSaveSubject}
               />
+            )}
+            
+            {isExportModalOpen && (
+                <TeacherExportModal
+                    isOpen={isExportModalOpen}
+                    onClose={() => setIsExportModalOpen(false)}
+                    onExport={handleTeacherExportPDF}
+                    subjects={teacherSubjects}
+                    classNames={uniqueClassNames}
+                    initialSubjectId={filterSubjectId}
+                    initialClassName={filterClassName}
+                />
+            )}
+            
+            {isSignatureModalOpen && (
+                <SignatureModal
+                    isOpen={isSignatureModalOpen}
+                    onClose={() => setIsSignatureModalOpen(false)}
+                    onSave={handleSaveSignature}
+                    existingSignature={teacher.signature}
+                />
             )}
 
             {deletingSubject && (
@@ -509,6 +696,163 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ teacher, allSubject
     );
 };
 
+// --- SIGNATURE MODAL ---
+
+interface SignatureModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    onSave: (signature: string | undefined) => void;
+    existingSignature?: string;
+}
+
+const SignatureModal: React.FC<SignatureModalProps> = ({ isOpen, onClose, onSave, existingSignature }) => {
+    const [preview, setPreview] = useState<string | undefined>(existingSignature);
+    const [file, setFile] = useState<File | null>(null);
+
+    useEffect(() => {
+        setPreview(existingSignature);
+        setFile(null);
+    }, [isOpen, existingSignature]);
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0]) {
+            const selectedFile = e.target.files[0];
+            if (selectedFile.size > 2 * 1024 * 1024) { // 2MB limit
+                alert("File quá lớn. Vui lòng chọn ảnh nhỏ hơn 2MB.");
+                return;
+            }
+            setFile(selectedFile);
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                setPreview(reader.result as string);
+            };
+            reader.readAsDataURL(selectedFile);
+        }
+    };
+
+    const handleSave = () => {
+        onSave(preview);
+    };
+
+    const handleRemove = () => {
+        setFile(null);
+        setPreview(undefined);
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="Cập nhật chữ ký">
+            <div className="space-y-4">
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Tải lên hình ảnh chữ ký của bạn (định dạng .png, .jpg). Chữ ký này sẽ được tự động chèn vào file in Sổ đầu bài. Nếu không có chữ ký, bạn có thể ký trực tiếp sau khi in.
+                </p>
+                
+                <div className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg p-6 dark:border-gray-600">
+                    {preview ? (
+                        <div className="relative">
+                            <img src={preview} alt="Chữ ký preview" className="max-h-32 object-contain border border-gray-200 rounded" />
+                            <button 
+                                onClick={handleRemove}
+                                className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 focus:outline-none"
+                                title="Xóa chữ ký"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                                </svg>
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="text-center">
+                            <svg className="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
+                                <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                            <div className="mt-2 flex text-sm text-gray-600 dark:text-gray-400">
+                                <label htmlFor="file-upload" className="relative cursor-pointer bg-white dark:bg-gray-700 rounded-md font-medium text-primary-600 hover:text-primary-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-primary-500">
+                                    <span className="px-2">Tải file lên</span>
+                                    <input id="file-upload" name="file-upload" type="file" className="sr-only" accept="image/png, image/jpeg, image/jpg" onChange={handleFileChange} />
+                                </label>
+                            </div>
+                            <p className="text-xs text-gray-500 dark:text-gray-500">PNG, JPG tối đa 2MB</p>
+                        </div>
+                    )}
+                </div>
+
+                <div className="flex justify-end space-x-3 pt-2">
+                     <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600">Hủy</button>
+                    <button onClick={handleSave} className="px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-md shadow-sm hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">Lưu thay đổi</button>
+                </div>
+            </div>
+        </Modal>
+    );
+}
+
+
+const TeacherExportModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    onExport: (subjectId: string, className: string) => void;
+    subjects: Subject[];
+    classNames: string[];
+    initialSubjectId: string;
+    initialClassName: string;
+}> = ({ isOpen, onClose, onExport, subjects, classNames, initialSubjectId, initialClassName }) => {
+    const [selectedSubject, setSelectedSubject] = useState(initialSubjectId);
+    const [selectedClass, setSelectedClass] = useState(initialClassName);
+
+    useEffect(() => {
+        setSelectedSubject(initialSubjectId);
+        setSelectedClass(initialClassName);
+    }, [isOpen, initialSubjectId, initialClassName]);
+
+    const handleExport = () => {
+        if (!selectedSubject || !selectedClass) {
+            alert("Vui lòng chọn môn học và lớp để xuất file.");
+            return;
+        }
+        onExport(selectedSubject, selectedClass);
+        onClose();
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="Xuất file in Sổ đầu bài">
+            <div className="space-y-4">
+                <p className="text-sm text-gray-600 dark:text-gray-400">Vui lòng chọn Môn học và Lớp để tạo file in theo mẫu.</p>
+                <div>
+                    <label htmlFor="exportSubject" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Môn học</label>
+                    <select
+                        id="exportSubject"
+                        value={selectedSubject}
+                        onChange={(e) => setSelectedSubject(e.target.value)}
+                        className="mt-1 block w-full pl-3 pr-10 py-2 text-base bg-gray-100 border-gray-300 focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm rounded-md dark:bg-gray-700 dark:border-gray-600"
+                    >
+                        <option value="">-- Chọn môn học --</option>
+                        {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                </div>
+                <div>
+                    <label htmlFor="exportClass" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Lớp</label>
+                    <select
+                        id="exportClass"
+                        value={selectedClass}
+                        onChange={(e) => setSelectedClass(e.target.value)}
+                        className="mt-1 block w-full pl-3 pr-10 py-2 text-base bg-gray-100 border-gray-300 focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm rounded-md dark:bg-gray-700 dark:border-gray-600"
+                    >
+                        <option value="">-- Chọn lớp --</option>
+                        {classNames.map(name => <option key={name} value={name}>{name}</option>)}
+                    </select>
+                </div>
+                <div className="flex justify-end space-x-2 pt-4">
+                    <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 border border-gray-300 rounded-md shadow-sm hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200">
+                        Hủy
+                    </button>
+                    <button onClick={handleExport} className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md shadow-sm hover:bg-green-700">
+                        Xuất file in
+                    </button>
+                </div>
+            </div>
+        </Modal>
+    );
+};
+
 
 // --- ADMIN DASHBOARD ---
 interface AdminDashboardProps {
@@ -561,7 +905,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teachers, onTeachersUpd
             `).join('');
 
         const teacherFilterName = filterTeacher ? teachers.find(t => t.id === filterTeacher)?.name : 'Tất cả';
-        const subjectFilterName = filterSubject ? subjects.find(s => s.id === subjectFilterName)?.name : 'Tất cả';
+        const subjectFilterName = filterSubject ? subjects.find(s => s.id === filterSubject)?.name : 'Tất cả';
         const dateFilterRange = startDate && endDate
             ? `Từ ${new Date(startDate).toLocaleDateString('vi-VN')} đến ${new Date(endDate).toLocaleDateString('vi-VN')}`
             : startDate
@@ -701,20 +1045,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ teachers, onTeachersUpd
     );
 };
 
-// --- LOG LIST COMPONENT ---
+// --- COMPONENTS DEFINITIONS ---
+
 interface LessonLogListProps {
-  logs: LessonLog[];
-  subjects: Subject[];
-  teachers: Teacher[];
-  onEdit?: (log: LessonLog) => void;
-  onDelete?: (logId: string) => void;
+    logs: LessonLog[];
+    subjects: Subject[];
+    teachers: Teacher[];
+    onEdit?: (log: LessonLog) => void;
+    onDelete?: (id: string) => void;
 }
+
 const LessonLogList: React.FC<LessonLogListProps> = ({ logs, subjects, teachers, onEdit, onDelete }) => {
     const getSubjectName = (id: string) => subjects.find(s => s.id === id)?.name || 'N/A';
-    const getTeacherName = (id: string) => teachers.find(t => t.id === id)?.name;
+    const getTeacherName = (id: string) => teachers.find(t => t.id === id)?.name || 'N/A';
 
     if (logs.length === 0) {
-        return <p className="text-center text-gray-500 dark:text-gray-400 py-4">Không có dữ liệu.</p>;
+        return <div className="text-center p-4 text-gray-500 dark:text-gray-400">Chưa có dữ liệu sổ đầu bài.</div>;
     }
 
     return (
@@ -722,32 +1068,56 @@ const LessonLogList: React.FC<LessonLogListProps> = ({ logs, subjects, teachers,
             <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                 <thead className="bg-gray-50 dark:bg-gray-700">
                     <tr>
-                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">Ngày dạy</th>
-                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Buổi</th>
-                        {!onEdit && <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Giáo viên</th>}
-                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">Môn học (Lớp)</th>
-                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">Tên bài dạy</th>
-                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">Sĩ số/Vắng</th>
-                        {onEdit && <th scope="col" className="relative px-6 py-3"><span className="sr-only">Hành động</span></th>}
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Ngày / Buổi</th>
+                        {teachers.length > 0 && <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Giáo viên</th>}
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Môn / Lớp</th>
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Tiết</th>
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Nội dung</th>
+                        {(onEdit || onDelete) && <th scope="col" className="relative px-6 py-3"><span className="sr-only">Hành động</span></th>}
                     </tr>
                 </thead>
                 <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                    {logs.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(log => (
-                        <tr key={log.id}>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{new Date(log.date).toLocaleDateString('vi-VN')}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 capitalize">{log.session}</td>
-                            {!onEdit && <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{getTeacherName(log.teacherId)}</td>}
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                {getSubjectName(log.subjectId)}
-                                {log.className && <span className="font-semibold text-gray-700 dark:text-gray-300"> ({log.className})</span>}
+                    {logs.map((log) => (
+                        <tr key={log.id} className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                            <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm text-gray-900 dark:text-white">{new Date(log.date).toLocaleDateString('vi-VN')}</div>
+                                <div className="text-sm text-gray-500 dark:text-gray-400 capitalize">{log.session}</div>
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{log.title}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{log.classSize} / {log.absentStudents}</td>
-                            {onEdit && onDelete && (
+                            {teachers.length > 0 && (
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                    <div className="text-sm text-gray-900 dark:text-white">{getTeacherName(log.teacherId)}</div>
+                                </td>
+                            )}
+                            <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm font-medium text-gray-900 dark:text-white">{getSubjectName(log.subjectId)}</div>
+                                <div className="text-sm text-gray-500 dark:text-gray-400">Lớp: {log.className}</div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm text-gray-900 dark:text-white">Tiết thứ: {log.periodNumber}</div>
+                                <div className="text-sm text-gray-500 dark:text-gray-400">Số tiết: {log.periods}</div>
+                            </td>
+                            <td className="px-6 py-4">
+                                <div className="text-sm text-gray-900 dark:text-white truncate max-w-xs" title={log.title}>{log.title}</div>
+                                <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs" title={log.remarks}>{log.remarks}</div>
+                                {log.absentStudents && log.absentStudents !== 'Không' && (
+                                     <div className="text-xs text-red-500 mt-1">
+                                        {log.absentStudents.toLowerCase().startsWith('vắng') ? log.absentStudents : `Vắng: ${log.absentStudents}`}
+                                     </div>
+                                )}
+                            </td>
+                            {(onEdit || onDelete) && (
                                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                    <div className="flex space-x-2 justify-end">
-                                        <button onClick={() => onEdit(log)} className="text-primary-600 hover:text-primary-900"><EditIcon /></button>
-                                        <button onClick={() => onDelete(log.id)} className="text-red-600 hover:text-red-900"><DeleteIcon /></button>
+                                    <div className="flex justify-end space-x-2">
+                                        {onEdit && (
+                                            <button onClick={() => onEdit(log)} className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300">
+                                                <EditIcon />
+                                            </button>
+                                        )}
+                                        {onDelete && (
+                                            <button onClick={() => onDelete(log.id)} className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300">
+                                                <DeleteIcon />
+                                            </button>
+                                        )}
                                     </div>
                                 </td>
                             )}
@@ -759,227 +1129,261 @@ const LessonLogList: React.FC<LessonLogListProps> = ({ logs, subjects, teachers,
     );
 };
 
-// --- MODAL FORMS ---
-const LessonLogFormModal: React.FC<{ isOpen: boolean, onClose: () => void, onSave: (log: Omit<LessonLog, 'id'>) => void, log: LessonLog | null, teacherId: string, subjects: Subject[] }> = ({ isOpen, onClose, onSave, log, teacherId, subjects }) => {
-    const [formData, setFormData] = useState({
-        subjectId: log?.subjectId || '',
-        className: log?.className || '',
-        date: log?.date || new Date().toISOString().split('T')[0],
-        session: log?.session || 'sáng',
-        periodNumber: log?.periodNumber || 1,
-        periods: log?.periods || 1,
-        title: log?.title || '',
-        classSize: log?.classSize || 40,
-        absentStudents: log?.absentStudents || '',
-        remarks: log?.remarks || '',
+interface LessonLogFormModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    onSave: (log: Omit<LessonLog, 'id'>) => void;
+    log: LessonLog | null;
+    teacherId: string;
+    subjects: Subject[];
+}
+
+const LessonLogFormModal: React.FC<LessonLogFormModalProps> = ({ isOpen, onClose, onSave, log, teacherId, subjects }) => {
+    const [formData, setFormData] = useState<Omit<LessonLog, 'id'>>({
+        teacherId,
+        subjectId: '',
+        className: '',
+        session: 'sáng',
+        periods: 1,
+        periodNumber: 1,
+        date: new Date().toISOString().split('T')[0],
+        title: '',
+        classSize: 0,
+        absentStudents: 'Không',
+        remarks: ''
     });
 
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    useEffect(() => {
+        if (log) {
+            const { id, ...rest } = log;
+            setFormData(rest);
+        } else {
+             setFormData(prev => ({ ...prev, subjectId: '' }));
+        }
+    }, [log, subjects]);
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: name === 'classSize' || name === 'periods' || name === 'periodNumber' ? Number(value) : value }));
+        setFormData(prev => ({
+            ...prev,
+            [name]: name === 'periods' || name === 'periodNumber' || name === 'classSize' ? parseInt(value) || 0 : value
+        }));
     };
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        if(!formData.subjectId) {
-            alert('Vui lòng chọn môn học');
-            return;
-        }
-         if(!formData.className) {
-            alert('Vui lòng nhập tên lớp');
-            return;
-        }
-        onSave({ ...formData, teacherId });
+        onSave(formData);
     };
 
-    const commonInputClass = "bg-gray-100 block w-full border-gray-300 rounded-md shadow-sm dark:bg-gray-700 dark:border-gray-600 focus:ring-primary-500 focus:border-primary-500 sm:text-sm p-2.5";
-    const commonLabelClass = "block mb-2 text-sm font-medium text-gray-900 dark:text-white";
-
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={log ? 'Chỉnh sửa sổ đầu bài' : 'Thêm mới sổ đầu bài'}>
+        <Modal isOpen={isOpen} onClose={onClose} title={log ? "Chỉnh sửa sổ đầu bài" : "Thêm sổ đầu bài"}>
             <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-4">
                     <div>
-                        <label htmlFor="subjectId" className={commonLabelClass}>Môn học</label>
-                        <select id="subjectId" name="subjectId" value={formData.subjectId} onChange={handleChange} required className={commonInputClass}>
-                            <option value="" disabled>Chọn môn học</option>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Môn học</label>
+                        <select name="subjectId" value={formData.subjectId} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:bg-gray-700 dark:border-gray-600 sm:text-sm p-2 border" required>
+                            <option value="" disabled>-- Chọn môn học --</option>
                             {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                         </select>
                     </div>
                      <div>
-                        <label htmlFor="className" className={commonLabelClass}>Lớp</label>
-                        <input type="text" id="className" name="className" placeholder="VD: 10A1" value={formData.className} onChange={handleChange} required className={commonInputClass}/>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Ngày dạy</label>
+                        <input type="date" name="date" value={formData.date} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:bg-gray-700 dark:border-gray-600 sm:text-sm p-2 border" required />
+                    </div>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Lớp</label>
+                        <input type="text" name="className" value={formData.className} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:bg-gray-700 dark:border-gray-600 sm:text-sm p-2 border" required placeholder="VD: 10A1" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Sĩ số</label>
+                        <input type="number" name="classSize" value={formData.classSize} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:bg-gray-700 dark:border-gray-600 sm:text-sm p-2 border" required min="1" />
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                        <label htmlFor="date" className={commonLabelClass}>Ngày dạy</label>
-                        <input type="date" id="date" name="date" value={formData.date} onChange={handleChange} required className={commonInputClass}/>
-                    </div>
-                    <div>
-                        <label htmlFor="session" className={commonLabelClass}>Buổi dạy</label>
-                        <select id="session" name="session" value={formData.session} onChange={handleChange} required className={commonInputClass}>
+                <div className="grid grid-cols-3 gap-4">
+                     <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Buổi</label>
+                        <select name="session" value={formData.session} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:bg-gray-700 dark:border-gray-600 sm:text-sm p-2 border">
                             <option value="sáng">Sáng</option>
                             <option value="chiều">Chiều</option>
                             <option value="tối">Tối</option>
                         </select>
                     </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
-                        <label htmlFor="periodNumber" className={commonLabelClass}>Tiết dạy (thứ tự)</label>
-                        <input type="number" id="periodNumber" name="periodNumber" min="1" value={formData.periodNumber} onChange={handleChange} required className={commonInputClass}/>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Tiết thứ</label>
+                        <input type="number" name="periodNumber" value={formData.periodNumber} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:bg-gray-700 dark:border-gray-600 sm:text-sm p-2 border" required min="1" max="12" />
                     </div>
                     <div>
-                        <label htmlFor="periods" className={commonLabelClass}>Số tiết</label>
-                        <input type="number" id="periods" name="periods" min="1" value={formData.periods} onChange={handleChange} required className={commonInputClass}/>
-                    </div>
-                     <div>
-                        <label htmlFor="classSize" className={commonLabelClass}>Sĩ số</label>
-                        <input type="number" id="classSize" name="classSize" min="0" value={formData.classSize} onChange={handleChange} required className={commonInputClass}/>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Số tiết dạy</label>
+                        <input type="number" name="periods" value={formData.periods} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:bg-gray-700 dark:border-gray-600 sm:text-sm p-2 border" required min="1" max="5" />
                     </div>
                 </div>
 
                 <div>
-                    <label htmlFor="absentStudents" className={commonLabelClass}>Học sinh vắng</label>
-                    <input type="text" id="absentStudents" name="absentStudents" placeholder="VD: An, Bình (phép)" value={formData.absentStudents} onChange={handleChange} className={commonInputClass}/>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Tên bài / Nội dung</label>
+                    <input type="text" name="title" value={formData.title} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:bg-gray-700 dark:border-gray-600 sm:text-sm p-2 border" required />
                 </div>
 
                 <div>
-                    <label htmlFor="title" className={commonLabelClass}>Tên bài dạy / Nội dung công việc</label>
-                    <textarea id="title" name="title" value={formData.title} onChange={handleChange} required rows={3} className={commonInputClass}/>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Học sinh vắng</label>
+                    <input type="text" name="absentStudents" value={formData.absentStudents} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:bg-gray-700 dark:border-gray-600 sm:text-sm p-2 border" placeholder="Ghi tên học sinh vắng hoặc 'Không'" />
                 </div>
 
                 <div>
-                    <label htmlFor="remarks" className={commonLabelClass}>Nhận xét tiết học</label>
-                    <textarea id="remarks" name="remarks" value={formData.remarks} onChange={handleChange} rows={3} className={commonInputClass}/>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Nhận xét</label>
+                    <textarea name="remarks" value={formData.remarks} onChange={handleChange} rows={3} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:bg-gray-700 dark:border-gray-600 sm:text-sm p-2 border" placeholder="Tình hình học tập, kỷ luật..."></textarea>
                 </div>
 
-                <div className="flex justify-end space-x-2 pt-4">
-                    <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 border border-gray-300 rounded-md shadow-sm hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-700">Hủy</button>
-                    <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-primary-600 border border-transparent rounded-md shadow-sm hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">Lưu</button>
+                <div className="flex justify-end pt-4">
+                     <button type="button" onClick={onClose} className="mr-3 px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600">Hủy</button>
+                    <button type="submit" className="px-4 py-2 bg-primary-600 text-white rounded-md shadow-sm hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">Lưu</button>
                 </div>
             </form>
         </Modal>
     );
 };
 
-const SubjectFormModal: React.FC<{ isOpen: boolean, onClose: () => void, onSave: (data: { name: string; totalPeriods: number }) => void }> = ({ isOpen, onClose, onSave }) => {
-  const [name, setName] = useState('');
-  const [totalPeriods, setTotalPeriods] = useState<number | string>('');
+interface SubjectFormModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    onSave: (data: { name: string, totalPeriods: number }) => void;
+}
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-     if (!name.trim() || !totalPeriods || Number(totalPeriods) <= 0) {
-        alert("Vui lòng nhập đầy đủ và hợp lệ thông tin môn học.");
-        return;
-    }
-    onSave({ name: name.trim(), totalPeriods: Number(totalPeriods) });
-  };
+const SubjectFormModal: React.FC<SubjectFormModalProps> = ({ isOpen, onClose, onSave }) => {
+    const [name, setName] = useState('');
+    const [totalPeriods, setTotalPeriods] = useState(45);
 
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Thêm môn học mới">
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label htmlFor="subjectName" className="block text-sm font-medium text-gray-900 dark:text-white">Tên môn học</label>
-          <input 
-            type="text" 
-            id="subjectName" 
-            value={name} 
-            onChange={e => setName(e.target.value)} 
-            required 
-            placeholder="VD: Giáo dục chính trị"
-            className="mt-1 bg-gray-100 block w-full border-gray-300 rounded-md shadow-sm dark:bg-gray-700 dark:border-gray-600 focus:ring-primary-500 focus:border-primary-500 sm:text-sm p-2.5" 
-          />
-        </div>
-        <div>
-          <label htmlFor="totalPeriods" className="block text-sm font-medium text-gray-900 dark:text-white">Tổng số tiết</label>
-          <input 
-            type="number" 
-            id="totalPeriods" 
-            value={totalPeriods} 
-            onChange={e => setTotalPeriods(e.target.value)} 
-            required 
-            min="1"
-            placeholder="VD: 90"
-            className="mt-1 bg-gray-100 block w-full border-gray-300 rounded-md shadow-sm dark:bg-gray-700 dark:border-gray-600 focus:ring-primary-500 focus:border-primary-500 sm:text-sm p-2.5" 
-          />
-        </div>
-        <div className="flex justify-end space-x-2 pt-4">
-          <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 dark:bg-gray-600 rounded-lg">Hủy</button>
-          <button type="submit" className="px-4 py-2 bg-primary-600 text-white rounded-lg">Lưu</button>
-        </div>
-      </form>
-    </Modal>
-  );
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        onSave({ name, totalPeriods });
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="Thêm môn học mới">
+            <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Tên môn học</label>
+                    <input type="text" value={name} onChange={e => setName(e.target.value)} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:bg-gray-700 dark:border-gray-600 sm:text-sm p-2 border" required autoFocus />
+                </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Tổng số tiết (theo chương trình)</label>
+                    <input type="number" value={totalPeriods} onChange={e => setTotalPeriods(parseInt(e.target.value))} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:bg-gray-700 dark:border-gray-600 sm:text-sm p-2 border" required min="1" />
+                </div>
+                <div className="flex justify-end pt-4">
+                     <button type="button" onClick={onClose} className="mr-3 px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600">Hủy</button>
+                    <button type="submit" className="px-4 py-2 bg-primary-600 text-white rounded-md shadow-sm hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">Thêm</button>
+                </div>
+            </form>
+        </Modal>
+    );
 };
 
-// --- TEACHER MANAGER (ADMIN) ---
-const TeacherManager: React.FC<{ 
-    teachers: Teacher[], 
-    onTeachersUpdate: (teachers: Teacher[]) => void,
-    subjects: Subject[],
-    onSubjectsUpdate: (subjects: Subject[]) => void,
-    logs: LessonLog[],
-    onLogsUpdate: (logs: LessonLog[]) => void,
-}> = ({ teachers, onTeachersUpdate, subjects, onSubjectsUpdate, logs, onLogsUpdate }) => {
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [editingTeacher, setEditingTeacher] = useState<Teacher | null>(null);
+interface TeacherManagerProps {
+    teachers: Teacher[];
+    onTeachersUpdate: (teachers: Teacher[]) => void;
+    subjects: Subject[];
+    onSubjectsUpdate: (subjects: Subject[]) => void;
+    logs: LessonLog[];
+    onLogsUpdate: (logs: LessonLog[]) => void;
+}
+
+const TeacherManager: React.FC<TeacherManagerProps> = ({ teachers, onTeachersUpdate, subjects, onSubjectsUpdate, logs, onLogsUpdate }) => {
+    const [newTeacherName, setNewTeacherName] = useState('');
+    const [newTeacherCode, setNewTeacherCode] = useState('');
+    const [newTeacherPhone, setNewTeacherPhone] = useState('');
+    const [newTeacherSubjects, setNewTeacherSubjects] = useState('');
     const [deletingTeacher, setDeletingTeacher] = useState<Teacher | null>(null);
 
-    const handleSave = (teacherData: Omit<Teacher, 'id'>) => {
-        if (editingTeacher) {
-            onTeachersUpdate(teachers.map(t => t.id === editingTeacher.id ? { ...editingTeacher, ...teacherData } : t));
-        } else {
-            onTeachersUpdate([...teachers, { ...teacherData, id: `t${Date.now()}` }]);
+    const handleAddTeacher = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (teachers.some(t => t.code === newTeacherCode)) {
+            alert('Mã giáo viên đã tồn tại');
+            return;
         }
-        setIsModalOpen(false);
+        const newTeacher: Teacher = {
+            id: `t${Date.now()}`,
+            name: newTeacherName,
+            code: newTeacherCode,
+            phoneNumber: newTeacherPhone,
+            teachingSubjects: newTeacherSubjects
+        };
+        onTeachersUpdate([...teachers, newTeacher]);
+        setNewTeacherName('');
+        setNewTeacherCode('');
+        setNewTeacherPhone('');
+        setNewTeacherSubjects('');
     };
 
     const confirmDeleteTeacher = () => {
         if (!deletingTeacher) return;
+        // Cascading delete: remove subjects and logs associated with this teacher
+        const updatedSubjects = subjects.filter(s => s.teacherId !== deletingTeacher.id);
+        const updatedLogs = logs.filter(l => l.teacherId !== deletingTeacher.id);
         
-        const subjectsToDeleteIds = subjects
-            .filter(s => s.teacherId === deletingTeacher.id)
-            .map(s => s.id);
-        
+        onSubjectsUpdate(updatedSubjects);
+        onLogsUpdate(updatedLogs);
         onTeachersUpdate(teachers.filter(t => t.id !== deletingTeacher.id));
-        onSubjectsUpdate(subjects.filter(s => s.teacherId !== deletingTeacher.id));
-        onLogsUpdate(logs.filter(l => !subjectsToDeleteIds.includes(l.subjectId)));
-        
         setDeletingTeacher(null);
     };
 
     return (
         <div className="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6">
-            <div className="flex justify-between items-center mb-4">
-                <h3 className="text-xl font-semibold">Danh sách giáo viên</h3>
-                <button onClick={() => { setEditingTeacher(null); setIsModalOpen(true); }} className="inline-flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">
-                    <PlusIcon /> <span className="ml-2 hidden sm:inline">Thêm giáo viên</span>
-                </button>
-            </div>
-            {/* Table */}
-            <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                     <thead className="bg-gray-50 dark:bg-gray-700">
+            <h3 className="text-xl font-semibold mb-4">Quản lý giáo viên</h3>
+            <form onSubmit={handleAddTeacher} className="mb-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Mã giáo viên</label>
+                        <input type="text" value={newTeacherCode} onChange={e => setNewTeacherCode(e.target.value)} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:bg-gray-600 dark:border-gray-500 dark:text-white sm:text-sm p-2 border" required />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Họ tên</label>
+                        <input type="text" value={newTeacherName} onChange={e => setNewTeacherName(e.target.value)} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:bg-gray-600 dark:border-gray-500 dark:text-white sm:text-sm p-2 border" required />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Số điện thoại</label>
+                        <input type="text" value={newTeacherPhone} onChange={e => setNewTeacherPhone(e.target.value)} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:bg-gray-600 dark:border-gray-500 dark:text-white sm:text-sm p-2 border" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Môn dạy</label>
+                        <input type="text" value={newTeacherSubjects} onChange={e => setNewTeacherSubjects(e.target.value)} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:bg-gray-600 dark:border-gray-500 dark:text-white sm:text-sm p-2 border" placeholder="VD: Toán, Lý" />
+                    </div>
+                    <button type="submit" className="w-full flex justify-center items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700 focus:outline-none">
+                        <PlusIcon /> <span className="ml-2">Thêm</span>
+                    </button>
+                </div>
+            </form>
+
+            <div className="overflow-hidden shadow ring-1 ring-black ring-opacity-5 md:rounded-lg">
+                <table className="min-w-full divide-y divide-gray-300 dark:divide-gray-600">
+                    <thead className="bg-gray-50 dark:bg-gray-700">
                         <tr>
-                           <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Mã GV</th>
-                           <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Tên giáo viên</th>
-                           <th scope="col" className="relative px-6 py-3"><span className="sr-only">Actions</span></th>
+                            <th scope="col" className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 dark:text-white sm:pl-6">Mã GV</th>
+                            <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Họ tên</th>
+                            <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">SĐT</th>
+                            <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Môn dạy</th>
+                             <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Số lượng môn</th>
+                            <th scope="col" className="relative py-3.5 pl-3 pr-4 sm:pr-6">
+                                <span className="sr-only">Xóa</span>
+                            </th>
                         </tr>
-                     </thead>
-                     <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                        {teachers.map(teacher => (
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-600 bg-white dark:bg-gray-800">
+                        {teachers.map((teacher) => (
                             <tr key={teacher.id}>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{teacher.code}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm">{teacher.name}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                     <div className="flex space-x-2 justify-end">
-                                        <button onClick={() => { setEditingTeacher(teacher); setIsModalOpen(true); }} className="text-primary-600 hover:text-primary-900"><EditIcon /></button>
-                                        <button onClick={() => setDeletingTeacher(teacher)} className="text-red-600 hover:text-red-900"><DeleteIcon /></button>
-                                    </div>
+                                <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 dark:text-white sm:pl-6">{teacher.code}</td>
+                                <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-300">{teacher.name}</td>
+                                <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-300">{teacher.phoneNumber || '-'}</td>
+                                <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-300">{teacher.teachingSubjects || '-'}</td>
+                                <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-300">
+                                    {subjects.filter(s => s.teacherId === teacher.id).length}
+                                </td>
+                                <td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
+                                    <button onClick={() => setDeletingTeacher(teacher)} className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300">
+                                        <DeleteIcon />
+                                    </button>
                                 </td>
                             </tr>
                         ))}
@@ -987,33 +1391,15 @@ const TeacherManager: React.FC<{
                 </table>
             </div>
 
-            {isModalOpen && (
-                <TeacherFormModal
-                    isOpen={isModalOpen}
-                    onClose={() => setIsModalOpen(false)}
-                    onSave={handleSave}
-                    teacher={editingTeacher}
-                />
-            )}
-            
             {deletingTeacher && (
-                <Modal
-                    isOpen={!!deletingTeacher}
-                    onClose={() => setDeletingTeacher(null)}
-                    title="Xác nhận xóa giáo viên"
-                >
-                    <div>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">
-                           Bạn có chắc chắn muốn xóa giáo viên <span className="font-bold">{deletingTeacher.name}</span>? Mọi môn học và tiết dạy liên quan cũng sẽ bị xóa vĩnh viễn. Hành động này không thể hoàn tác.
-                        </p>
-                        <div className="flex justify-end space-x-4 mt-6">
-                            <button type="button" onClick={() => setDeletingTeacher(null)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-600">
-                                Hủy
-                            </button>
-                            <button type="button" onClick={confirmDeleteTeacher} className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
-                                Xóa
-                            </button>
-                        </div>
+                <Modal isOpen={!!deletingTeacher} onClose={() => setDeletingTeacher(null)} title="Xóa giáo viên">
+                    <div className="space-y-4">
+                         <p className="text-gray-700 dark:text-gray-300">Bạn có chắc chắn muốn xóa giáo viên <strong>{deletingTeacher.name}</strong>?</p>
+                         <p className="text-red-500 text-sm">Cảnh báo: Tất cả môn học và sổ đầu bài của giáo viên này cũng sẽ bị xóa!</p>
+                         <div className="flex justify-end gap-3">
+                            <button onClick={() => setDeletingTeacher(null)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">Hủy</button>
+                            <button onClick={confirmDeleteTeacher} className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">Xóa vĩnh viễn</button>
+                         </div>
                     </div>
                 </Modal>
             )}
@@ -1021,259 +1407,183 @@ const TeacherManager: React.FC<{
     );
 };
 
-const TeacherFormModal: React.FC<{ isOpen: boolean, onClose: () => void, onSave: (data: Omit<Teacher, 'id'>) => void, teacher: Teacher | null }> = ({ isOpen, onClose, onSave, teacher }) => {
-    const [formData, setFormData] = useState({ code: teacher?.code || '', name: teacher?.name || '' });
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, [e.target.name]: e.target.value });
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        onSave(formData);
-    };
-
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} title={teacher ? "Sửa thông tin giáo viên" : "Thêm giáo viên mới"}>
-            <form onSubmit={handleSubmit} className="space-y-4">
-                 <div>
-                    <label className="block text-sm font-medium">Mã giáo viên</label>
-                    <input type="text" name="code" value={formData.code} onChange={handleChange} required className="mt-1 block w-full border-gray-300 rounded-md shadow-sm bg-gray-100 p-2.5 dark:bg-gray-700 dark:border-gray-600"/>
-                </div>
-                 <div>
-                    <label className="block text-sm font-medium">Tên giáo viên</label>
-                    <input type="text" name="name" value={formData.name} onChange={handleChange} required className="mt-1 block w-full border-gray-300 rounded-md shadow-sm bg-gray-100 p-2.5 dark:bg-gray-700 dark:border-gray-600"/>
-                </div>
-                <div className="flex justify-end space-x-2 pt-4">
-                    <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 dark:bg-gray-600 rounded-lg">Hủy</button>
-                    <button type="submit" className="px-4 py-2 bg-primary-600 text-white rounded-lg">Lưu</button>
-                </div>
-            </form>
-        </Modal>
-    );
-};
-
-// --- SUBJECT MANAGER (ADMIN) ---
-const SubjectManager: React.FC<{ subjects: Subject[], teachers: Teacher[], onSubjectsUpdate: (s: Subject[]) => void, logs: LessonLog[], onLogsUpdate: (l: LessonLog[]) => void }> = ({ subjects, teachers, onSubjectsUpdate, logs, onLogsUpdate }) => {
+interface SubjectManagerProps {
+    subjects: Subject[];
+    teachers: Teacher[];
+    onSubjectsUpdate: (subjects: Subject[]) => void;
+    logs: LessonLog[];
+    onLogsUpdate: (logs: LessonLog[]) => void;
+}
+const SubjectManager: React.FC<SubjectManagerProps> = ({ subjects, teachers, onSubjectsUpdate, logs, onLogsUpdate }) => {
     const [deletingSubject, setDeletingSubject] = useState<Subject | null>(null);
-    const getTeacherName = (id: string) => teachers.find(t => t.id === id)?.name || 'N/A';
-    
-    const confirmDeleteSubject = () => {
-        if (!deletingSubject) return;
+    const confirmDelete = () => {
+        if(!deletingSubject) return;
         onSubjectsUpdate(subjects.filter(s => s.id !== deletingSubject.id));
         onLogsUpdate(logs.filter(l => l.subjectId !== deletingSubject.id));
         setDeletingSubject(null);
-    };
+    }
 
     return (
         <div className="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6">
-            <h3 className="text-xl font-semibold mb-4">Tất cả môn học</h3>
-            <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                     <thead className="bg-gray-50 dark:bg-gray-700">
+            <h3 className="text-xl font-semibold mb-4">Danh sách môn học toàn trường</h3>
+            <div className="overflow-hidden shadow ring-1 ring-black ring-opacity-5 md:rounded-lg">
+                <table className="min-w-full divide-y divide-gray-300 dark:divide-gray-600">
+                    <thead className="bg-gray-50 dark:bg-gray-700">
                         <tr>
-                           <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Tên môn học</th>
-                           <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Giáo viên</th>
-                           <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Lớp học</th>
-                           <th scope="col" className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Tổng tiết</th>
-                           <th scope="col" className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Đã dạy</th>
-                           <th scope="col" className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Còn lại</th>
-                           <th scope="col" className="relative px-6 py-3"><span className="sr-only">Hành động</span></th>
+                            <th className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 dark:text-white sm:pl-6">Tên môn học</th>
+                            <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Giáo viên phụ trách</th>
+                            <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Tổng tiết</th>
+                            <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Số tiết đã dạy</th>
+                            <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Số tiết còn lại</th>
+                            <th className="relative py-3.5 pl-3 pr-4 sm:pr-6"><span className="sr-only">Hành động</span></th>
                         </tr>
-                     </thead>
-                     <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-600 bg-white dark:bg-gray-800">
                         {subjects.map(subject => {
-                            const subjectLogs = logs.filter(l => l.subjectId === subject.id);
-                            const taughtPeriods = subjectLogs.reduce((sum, log) => sum + log.periods, 0);
+                            const taughtPeriods = logs
+                                .filter(l => l.subjectId === subject.id)
+                                .reduce((sum, l) => sum + l.periods, 0);
                             const remainingPeriods = subject.totalPeriods - taughtPeriods;
-                            const classNames = [...new Set(subjectLogs.map(l => l.className).filter(Boolean))].join(', ');
 
                             return (
                                 <tr key={subject.id}>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{subject.name}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm">{getTeacherName(subject.teacherId)}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{classNames || 'Chưa có'}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-center">{subject.totalPeriods}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-center">{taughtPeriods}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-center font-bold">{remainingPeriods}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                        <button onClick={() => setDeletingSubject(subject)} className="text-red-600 hover:text-red-900"><DeleteIcon /></button>
+                                    <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 dark:text-white sm:pl-6">{subject.name}</td>
+                                    <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-300">{teachers.find(t => t.id === subject.teacherId)?.name || 'Unknown'}</td>
+                                    <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-300">{subject.totalPeriods}</td>
+                                    <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-300">{taughtPeriods}</td>
+                                    <td className={`whitespace-nowrap px-3 py-4 text-sm font-medium ${remainingPeriods < 0 ? 'text-red-600' : 'text-gray-500 dark:text-gray-300'}`}>{remainingPeriods}</td>
+                                    <td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
+                                         <button onClick={() => setDeletingSubject(subject)} className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300">
+                                            <DeleteIcon />
+                                        </button>
                                     </td>
                                 </tr>
                             );
                         })}
+                         {subjects.length === 0 && (
+                            <tr>
+                                <td colSpan={6} className="py-4 text-center text-gray-500">Chưa có môn học nào được tạo.</td>
+                            </tr>
+                        )}
                     </tbody>
                 </table>
             </div>
-
-            {deletingSubject && (
-                <Modal
-                    isOpen={!!deletingSubject}
-                    onClose={() => setDeletingSubject(null)}
-                    title="Xác nhận xóa môn học"
-                >
-                    <div>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">
-                           Bạn có chắc chắn muốn xóa môn học <span className="font-bold">{deletingSubject.name}</span>? Mọi tiết dạy liên quan cũng sẽ bị xóa vĩnh viễn. Hành động này không thể hoàn tác.
-                        </p>
-                        <div className="flex justify-end space-x-4 mt-6">
-                            <button type="button" onClick={() => setDeletingSubject(null)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-600">
-                                Hủy
-                            </button>
-                            <button type="button" onClick={confirmDeleteSubject} className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
-                                Xóa
-                            </button>
-                        </div>
+             {deletingSubject && (
+                <Modal isOpen={!!deletingSubject} onClose={() => setDeletingSubject(null)} title="Xóa môn học">
+                    <div className="space-y-4">
+                         <p className="text-gray-700 dark:text-gray-300">Bạn có chắc chắn muốn xóa môn học <strong>{deletingSubject.name}</strong>?</p>
+                         <p className="text-red-500 text-sm">Hành động này sẽ xóa tất cả các tiết dạy đã nhập cho môn này.</p>
+                         <div className="flex justify-end gap-3">
+                            <button onClick={() => setDeletingSubject(null)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">Hủy</button>
+                            <button onClick={confirmDelete} className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">Xóa</button>
+                         </div>
                     </div>
                 </Modal>
             )}
         </div>
     );
-};
+}
 
+interface StatisticsViewProps {
+    logs: LessonLog[];
+    teachers: Teacher[];
+    subjects: Subject[];
+}
+const StatisticsView: React.FC<StatisticsViewProps> = ({ logs, teachers, subjects }) => {
+    const [filterTeacherId, setFilterTeacherId] = useState('');
 
-// --- STATISTICS VIEW (ADMIN) ---
-const StatisticsView: React.FC<{ logs: LessonLog[], teachers: Teacher[], subjects: Subject[] }> = ({ logs, teachers, subjects }) => {
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const stats = useMemo(() => {
+        const now = new Date();
+        const today = now.getDay();
+        const startOfWeek = new Date(now);
+        startOfWeek.setDate(now.getDate() - (today === 0 ? 6 : today - 1));
+        startOfWeek.setHours(0, 0, 0, 0);
 
-    const pad = (n: number) => n.toString().padStart(2, '0');
-    const monthDateRange = `${pad(startOfMonth.getDate())}/${pad(startOfMonth.getMonth() + 1)} - ${pad(endOfMonth.getDate())}/${pad(endOfMonth.getMonth() + 1)}/${endOfMonth.getFullYear()}`;
+        const endOfWeek = new Date(startOfWeek);
+        endOfWeek.setDate(startOfWeek.getDate() + 6);
+        endOfWeek.setHours(23, 59, 59, 999);
 
-     const statsByTeacher = useMemo(() => {
-        const teacherStats: { [key: string]: { name: string, totalPeriods: number, periodsThisMonth: number, subjectNames: string } } = {};
-        
-        teachers.forEach(t => {
-            const teacherSubjectNames = subjects
-                .filter(s => s.teacherId === t.id)
-                .map(s => s.name)
-                .join(', ');
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        endOfMonth.setHours(23, 59, 59, 999);
 
-            teacherStats[t.id] = { 
-                name: t.name, 
-                totalPeriods: 0,
-                periodsThisMonth: 0,
-                subjectNames: teacherSubjectNames || "Chưa có"
-            };
-        });
+        // Pre-filter logs by teacher if a filter is selected
+        const relevantTeachers = filterTeacherId 
+            ? teachers.filter(t => t.id === filterTeacherId)
+            : teachers;
 
-        logs.forEach(log => {
-            if (teacherStats[log.teacherId]) {
-                teacherStats[log.teacherId].totalPeriods += log.periods;
-                
-                const logDate = new Date(log.date);
-                if (logDate >= startOfMonth && logDate <= endOfMonth) {
-                    teacherStats[log.teacherId].periodsThisMonth += log.periods;
-                }
-            }
-        });
+        return relevantTeachers.map(t => {
+            const tLogs = logs.filter(l => l.teacherId === t.id);
+            const total = tLogs.reduce((sum, l) => sum + l.periods, 0);
+            
+            const week = tLogs.filter(l => {
+                const d = new Date(l.date);
+                return d >= startOfWeek && d <= endOfWeek;
+            }).reduce((sum, l) => sum + l.periods, 0);
 
-        return Object.values(teacherStats).sort((a,b) => b.totalPeriods - a.totalPeriods);
-    }, [logs, teachers, subjects, startOfMonth, endOfMonth]);
+            const month = tLogs.filter(l => {
+                const d = new Date(l.date);
+                return d >= startOfMonth && d <= endOfMonth;
+            }).reduce((sum, l) => sum + l.periods, 0);
 
-    const totalPeriods = useMemo(() => logs.reduce((sum, log) => sum + log.periods, 0), [logs]);
+            return { name: t.name, total, week, month, count: tLogs.length };
+        }).sort((a, b) => b.total - a.total);
+    }, [logs, teachers, filterTeacherId]);
 
-    const handleExportTeacherStatsPDF = () => {
-        const printWindow = window.open('', '_blank');
-        if (!printWindow) {
-            alert("Không thể mở cửa sổ mới. Vui lòng cho phép pop-up cho trang web này.");
-            return;
-        }
-
-        const tableRows = statsByTeacher.map(stat => `
-            <tr>
-                <td>${stat.name}</td>
-                <td>${stat.subjectNames}</td>
-                <td style="text-align: center;">${stat.totalPeriods}</td>
-                <td style="text-align: center;">${stat.periodsThisMonth}</td>
-            </tr>
-        `).join('');
-
-        const htmlContent = `
-            <!DOCTYPE html>
-            <html lang="vi">
-            <head>
-                <meta charset="UTF-8">
-                <title>Báo Cáo Thống Kê Theo Giáo Viên</title>
-                <style>
-                    body { font-family: 'Helvetica', 'Arial', sans-serif; font-size: 12px; margin: 20px; }
-                    h1 { text-align: center; color: #333; margin-bottom: 20px; font-size: 22px;}
-                    p { text-align: center; font-size: 14px; margin-bottom: 20px; }
-                    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-                    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; word-break: break-word; }
-                    th { background-color: #f2f2f2; font-size: 13px; }
-                    @media print {
-                        @page { size: A4 portrait; }
-                        body { margin: 1cm; font-size: 10px; }
-                        h1 { font-size: 20px; }
-                        p { font-size: 12px; }
-                        th { font-size: 11px; }
-                    }
-                </style>
-            </head>
-            <body>
-                <h1>BÁO CÁO THỐNG KÊ THEO GIÁO VIÊN</h1>
-                <p><strong>Ngày xuất báo cáo:</strong> ${new Date().toLocaleDateString('vi-VN')}</p>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Giáo viên</th>
-                            <th>Môn học</th>
-                            <th style="text-align: center;">Tổng số tiết dạy</th>
-                            <th style="text-align: center;">Tổng tiết tháng (${monthDateRange})</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${tableRows}
-                         ${tableRows.length === 0 ? '<tr><td colspan="4" style="text-align: center; padding: 20px;">Không có dữ liệu.</td></tr>' : ''}
-                    </tbody>
-                </table>
-            </body>
-            </html>
-        `;
-        
-        printWindow.document.write(htmlContent);
-        printWindow.document.close();
-        printWindow.focus();
-        printWindow.print();
-    };
-
-
+    const totalPeriods = stats.reduce((acc, s) => acc + s.total, 0);
+    const totalLogs = stats.reduce((acc, s) => acc + s.count, 0);
+    
     return (
-        <div className="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6 space-y-6">
-            <h3 className="text-xl font-semibold">Thống kê tổng quan</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <StatCard title="Tổng số giáo viên" value={teachers.length} icon={<UserGroupIcon />} />
-                <StatCard title="Tổng số tiết đã dạy" value={totalPeriods} icon={<ChartBarIcon />} />
-                <StatCard title="Tổng số mục sổ đầu bài" value={logs.length} icon={<BookOpenIcon />} />
+        <div className="space-y-6">
+             <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Lọc theo giáo viên</label>
+                <select 
+                    value={filterTeacherId} 
+                    onChange={(e) => setFilterTeacherId(e.target.value)} 
+                    className="block w-full max-w-xs pl-3 pr-10 py-2 text-base bg-gray-100 border-gray-300 focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm rounded-md dark:bg-gray-700 dark:border-gray-600"
+                >
+                    <option value="">Tất cả giáo viên</option>
+                    {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
             </div>
-            <div>
-                <div className="flex justify-between items-center mb-2">
-                    <h4 className="text-lg font-semibold">Thống kê theo giáo viên</h4>
-                    <button onClick={handleExportTeacherStatsPDF} disabled={statsByTeacher.length === 0} className="inline-flex items-center justify-center px-3 py-1.5 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm">
-                        <DownloadIcon /> <span className="ml-2">Xuất PDF</span>
-                    </button>
-                </div>
-                  <div className="overflow-x-auto">
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                 <StatCard title="Tổng số tiết dạy (Theo bộ lọc)" value={totalPeriods} icon={<ChartBarIcon />} />
+                 <StatCard title="Tổng số phiếu sổ đầu bài (Theo bộ lọc)" value={totalLogs} icon={<BookOpenIcon />} />
+            </div>
+            
+            <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+                <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Thống kê chi tiết</h3>
+                <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                         <thead className="bg-gray-50 dark:bg-gray-700">
+                        <thead className="bg-gray-50 dark:bg-gray-700">
                             <tr>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Giáo viên</th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Môn học</th>
-                                <th scope="col" className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">Tổng số tiết dạy</th>
-                                <th scope="col" className="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">Tổng tiết tháng ({monthDateRange})</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Giáo viên</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Tuần này</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Tháng này</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Tổng số tiết</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Số lần nhập sổ</th>
                             </tr>
                         </thead>
                          <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                            {statsByTeacher.map(stat => (
-                                <tr key={stat.name}>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{stat.name}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{stat.subjectNames}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-center font-semibold">{stat.totalPeriods}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-center">{stat.periodsThisMonth}</td>
+                            {stats.map((t, idx) => (
+                                <tr key={idx}>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{t.name}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">{t.week}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">{t.month}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white font-semibold">{t.total}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">{t.count}</td>
                                 </tr>
                             ))}
-                        </tbody>
+                            {stats.length === 0 && (
+                                <tr>
+                                    <td colSpan={5} className="px-6 py-4 text-center text-sm text-gray-500">Không có dữ liệu</td>
+                                </tr>
+                            )}
+                         </tbody>
                     </table>
                 </div>
             </div>
         </div>
     );
-};
+}

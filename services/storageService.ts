@@ -27,8 +27,8 @@ const saveToStorage = <T,>(key: string, value: T): void => {
 
 const seedInitialData = () => {
   const initialTeachers: Teacher[] = [
-    { id: 't1', code: 'GV01', name: 'Nguyễn Văn An' },
-    { id: 't2', code: 'GV02', name: 'Trần Thị Bình' },
+    { id: 't1', code: 'GV01', name: 'Nguyễn Văn An', phoneNumber: '0901234567', teachingSubjects: 'Toán, Lý' },
+    { id: 't2', code: 'GV02', name: 'Trần Thị Bình', phoneNumber: '0909888777', teachingSubjects: 'Văn, Sử' },
   ];
   const initialSubjects: Subject[] = [
     { id: 's1', teacherId: 't1', name: 'Toán học', totalPeriods: 90 },

@@ -3,6 +3,9 @@ export interface Teacher {
   id: string;
   code: string;
   name: string;
+  signature?: string; // Base64 string of the signature image
+  phoneNumber?: string;
+  teachingSubjects?: string;
 }
 
 export interface Subject {
