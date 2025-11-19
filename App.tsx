@@ -1491,6 +1491,8 @@ interface StatisticsViewProps {
 }
 const StatisticsView: React.FC<StatisticsViewProps> = ({ logs, teachers, subjects }) => {
     const [filterTeacherId, setFilterTeacherId] = useState('');
+    const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
+    const [filterSubjectId, setFilterSubjectId] = useState('');
 
     const stats = useMemo(() => {
         const now = new Date();
@@ -1533,27 +1535,149 @@ const StatisticsView: React.FC<StatisticsViewProps> = ({ logs, teachers, subject
     const totalPeriods = stats.reduce((acc, s) => acc + s.total, 0);
     const totalLogs = stats.reduce((acc, s) => acc + s.count, 0);
     
+    const handleExportReport = () => {
+        const getSubjectName = (id: string) => subjects.find(s => s.id === id)?.name || 'N/A';
+        const getTeacherName = (id: string) => teachers.find(t => t.id === id)?.name || 'N/A';
+
+        // Filter logs for export based on selected filters
+        const filteredLogs = logs.filter(log => {
+            const teacherMatch = !filterTeacherId || log.teacherId === filterTeacherId;
+            const subjectMatch = !filterSubjectId || log.subjectId === filterSubjectId;
+            const dateMatch = log.date.startsWith(filterMonth);
+            return teacherMatch && subjectMatch && dateMatch;
+        });
+
+        const totalFilteredPeriods = filteredLogs.reduce((sum, log) => sum + log.periods, 0);
+        const sortedLogs = filteredLogs.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+        const printWindow = window.open('', '_blank');
+        if (!printWindow) {
+            alert("Không thể mở cửa sổ mới.");
+            return;
+        }
+
+        const teacherFilterName = filterTeacherId ? teachers.find(t => t.id === filterTeacherId)?.name : 'Tất cả giáo viên';
+        const subjectFilterName = filterSubjectId ? subjects.find(s => s.id === filterSubjectId)?.name : 'Tất cả môn học';
+        const [year, month] = filterMonth.split('-');
+
+        const tableRows = sortedLogs.map(log => `
+            <tr>
+                <td style="text-align: center;">${new Date(log.date).toLocaleDateString('vi-VN')}</td>
+                <td>${getSubjectName(log.subjectId)}</td>
+                <td style="text-align: center;">${log.className}</td>
+                <td style="text-align: center;">${log.periods}</td>
+            </tr>
+        `).join('');
+
+        const htmlContent = `
+            <!DOCTYPE html>
+            <html lang="vi">
+            <head>
+                <meta charset="UTF-8">
+                <title>Báo Cáo Thống Kê Chi Tiết</title>
+                <style>
+                    body { font-family: 'Times New Roman', serif; margin: 40px; font-size: 14px; }
+                    h1, h2 { text-align: center; margin: 10px 0; }
+                    h1 { font-size: 20px; font-weight: bold; text-transform: uppercase; }
+                    .header-info { text-align: center; margin-bottom: 30px; font-style: italic; }
+                    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                    th, td { border: 1px solid #333; padding: 8px; text-align: left; }
+                    th { background-color: #f0f0f0; text-align: center; font-weight: bold; }
+                    .total-row { font-weight: bold; background-color: #e0e0e0; }
+                    .footer { margin-top: 40px; text-align: right; padding-right: 40px; }
+                </style>
+            </head>
+            <body>
+                <h1>THỐNG KÊ GIỜ DẠY</h1>
+                <div class="header-info">
+                    <p>Giáo viên: <strong>${teacherFilterName}</strong></p>
+                    <p>Tháng: ${month}/${year} - Môn học: ${subjectFilterName}</p>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width: 20%">Ngày dạy</th>
+                            <th style="width: 40%">Môn dạy</th>
+                            <th style="width: 20%">Lớp dạy</th>
+                            <th style="width: 20%">Số tiết dạy</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tableRows}
+                        ${tableRows ? '' : '<tr><td colspan="4" style="text-align: center; padding: 20px;">Không có dữ liệu</td></tr>'}
+                    </tbody>
+                    <tfoot>
+                        <tr class="total-row">
+                            <td colspan="3" style="text-align: right; padding-right: 20px;">TỔNG SỐ TIẾT DẠY</td>
+                            <td style="text-align: center;">${totalFilteredPeriods}</td>
+                        </tr>
+                    </tfoot>
+                </table>
+                <div class="footer">
+                    <p>Ngày ..... tháng ..... năm .......</p>
+                    <p>Người lập bảng</p>
+                </div>
+            </body>
+            </html>
+        `;
+
+        printWindow.document.write(htmlContent);
+        printWindow.document.close();
+        printWindow.focus();
+        printWindow.print();
+    };
+
     return (
         <div className="space-y-6">
-             <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Lọc theo giáo viên</label>
-                <select 
-                    value={filterTeacherId} 
-                    onChange={(e) => setFilterTeacherId(e.target.value)} 
-                    className="block w-full max-w-xs pl-3 pr-10 py-2 text-base bg-gray-100 border-gray-300 focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm rounded-md dark:bg-gray-700 dark:border-gray-600"
-                >
-                    <option value="">Tất cả giáo viên</option>
-                    {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select>
+             <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm space-y-4">
+                <h3 className="text-lg font-medium text-gray-900 dark:text-white">Bộ lọc thống kê & Báo cáo</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-4 gap-4 items-end">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Giáo viên</label>
+                        <select 
+                            value={filterTeacherId} 
+                            onChange={(e) => setFilterTeacherId(e.target.value)} 
+                            className="block w-full pl-3 pr-10 py-2 text-base bg-gray-100 border-gray-300 focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm rounded-md dark:bg-gray-700 dark:border-gray-600"
+                        >
+                            <option value="">Tất cả giáo viên</option>
+                            {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tháng</label>
+                        <input 
+                            type="month" 
+                            value={filterMonth} 
+                            onChange={(e) => setFilterMonth(e.target.value)} 
+                            className="block w-full pl-3 pr-3 py-2 text-base bg-gray-100 border-gray-300 focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm rounded-md dark:bg-gray-700 dark:border-gray-600"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Môn học</label>
+                        <select 
+                            value={filterSubjectId} 
+                            onChange={(e) => setFilterSubjectId(e.target.value)} 
+                            className="block w-full pl-3 pr-10 py-2 text-base bg-gray-100 border-gray-300 focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm rounded-md dark:bg-gray-700 dark:border-gray-600"
+                        >
+                            <option value="">Tất cả môn học</option>
+                            {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <button onClick={handleExportReport} className="w-full inline-flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                            <DownloadIcon /> <span className="ml-2">Xuất báo cáo PDF</span>
+                        </button>
+                    </div>
+                </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                 <StatCard title="Tổng số tiết dạy (Theo bộ lọc)" value={totalPeriods} icon={<ChartBarIcon />} />
-                 <StatCard title="Tổng số phiếu sổ đầu bài (Theo bộ lọc)" value={totalLogs} icon={<BookOpenIcon />} />
+                 <StatCard title="Tổng số tiết dạy (Toàn bộ)" value={totalPeriods} icon={<ChartBarIcon />} />
+                 <StatCard title="Tổng số phiếu sổ đầu bài (Toàn bộ)" value={totalLogs} icon={<BookOpenIcon />} />
             </div>
             
             <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-                <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Thống kê chi tiết</h3>
+                <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Thống kê chi tiết (Tổng quan)</h3>
                 <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                         <thead className="bg-gray-50 dark:bg-gray-700">
