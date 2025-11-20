@@ -13,6 +13,7 @@ export interface Subject {
   name: string;
   teacherId: string;
   totalPeriods: number;
+  deletedAt?: string; // ISO Date string if deleted
 }
 
 export interface LessonLog {
@@ -28,6 +29,7 @@ export interface LessonLog {
   classSize: number;
   absentStudents: string;
   remarks: string;
+  deletedAt?: string; // ISO Date string if deleted
 }
 
 export type UserSession = {
